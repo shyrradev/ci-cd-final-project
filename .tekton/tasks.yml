@@ -42,3 +42,25 @@ spec:
         export PATH="/tmp/.local/bin:$PATH"
         python -m pip install --user --no-cache-dir -r requirements.txt
         nosetests $(params.args)
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: flake8
+spec:
+  workspaces:
+    - name: source
+  steps:
+    - name: lint
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: HOME
+          value: /tmp
+      script: |
+        #!/bin/sh
+        set -eu
+        export PATH="/tmp/.local/bin:$PATH"
+        python -m pip install --user --no-cache-dir flake8==4.0.1
+        flake8 service tests --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 service tests --count --max-complexity=10 --max-line-length=127 --statistics

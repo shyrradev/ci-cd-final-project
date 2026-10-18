@@ -1,0 +1,145 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: oc-final
+spec:
+  workspaces:
+    - name: shared-workspace
+  params:
+    - name: repo-url
+      type: string
+      default: https://github.com/shyrradev/ci-cd-final-project.git
+    - name: revision
+      type: string
+      default: main
+    - name: image-url
+      type: string
+    - name: app-name
+      type: string
+      default: ci-cd-final-project
+  tasks:
+    - name: cleanup
+      taskRef:
+        name: cleanup
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    - name: git-clone
+      runAfter: [cleanup]
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+        - name: deleteExisting
+          value: "true"
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    - name: flake8
+      runAfter: [git-clone]
+      taskRef:
+        name: flake8
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    - name: nose
+      runAfter: [flake8]
+      taskRef:
+        name: nose
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    - name: buildah
+      runAfter: [nose]
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      params:
+        - name: IMAGE
+          value: $(params.image-url)
+        - name: TLSVERIFY
+          value: "true"
+        - name: BUILD_EXTRA_ARGS
+          value: --cert-dir=/var/run/secrets/kubernetes.io/serviceaccount
+        - name: PUSH_EXTRA_ARGS
+          value: --cert-dir=/var/run/secrets/kubernetes.io/serviceaccount
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    - name: deploy
+      runAfter: [buildah]
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      params:
+        - name: SCRIPT
+          value: |
+            set -eu
+            oc apply -f - <<'MANIFEST'
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: $(params.app-name)
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: $(params.app-name)
+              template:
+                metadata:
+                  labels:
+                    app: $(params.app-name)
+                  annotations:
+                    tekton.dev/pipelineRun: $(context.pipelineRun.name)
+                spec:
+                  containers:
+                    - name: counter-service
+                      image: $(params.image-url)
+                      imagePullPolicy: Always
+                      ports:
+                        - containerPort: 8000
+                      readinessProbe:
+                        httpGet:
+                          path: /health
+                          port: 8000
+                        initialDelaySeconds: 3
+                      resources:
+                        requests:
+                          cpu: 10m
+                          memory: 64Mi
+                        limits:
+                          cpu: 250m
+                          memory: 256Mi
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: $(params.app-name)
+            spec:
+              selector:
+                app: $(params.app-name)
+              ports:
+                - name: http
+                  port: 8000
+                  targetPort: 8000
+            ---
+            apiVersion: route.openshift.io/v1
+            kind: Route
+            metadata:
+              name: $(params.app-name)
+            spec:
+              to:
+                kind: Service
+                name: $(params.app-name)
+              port:
+                targetPort: http
+              tls:
+                termination: edge
+                insecureEdgeTerminationPolicy: Redirect
+            MANIFEST
+            oc rollout status deployment/$(params.app-name) --timeout=240s
+            oc get deployment,service,route -l app=$(params.app-name)
