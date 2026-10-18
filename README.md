@@ -1,38 +1,57 @@
-# CI/CD Tools and Practices Final Project Template
+# CI/CD Final Project
 
-This repository contains the template to be used for the Final Project for the Coursera course **CI/CD Tools and Practices**.
+This project builds a continuous integration and delivery pipeline for IBM's
+Python Flask **Hit Counter Service**. GitHub Actions checks every push and pull
+request. Tekton and OpenShift Pipelines clean the workspace, clone the source,
+lint and test the application, build its container image, and deploy it.
 
-## Usage
+## Project files
 
-This repository is to be used as a template to create your own repository in your own GitHub account. No need to Fork it as it has been set up as a Template. This will avoid confusion when making Pull Requests in the future.
+| File | Purpose |
+| --- | --- |
+| `.github/workflows/workflow.yml` | GitHub Actions workflow with flake8 and nose tests |
+| `.tekton/tasks.yml` | Tekton cleanup and nose tasks |
+| `service/` | Flask counter API |
+| `tests/` | Counter service unit tests |
+| `Dockerfile` | Application container listening on port 8000 |
 
-From the GitHub **Code** page, press the green **Use this template** button to create your own repository from this template.
+## Continuous integration
 
-Name your repo: `ci-cd-final-project`.
-
-## Setup
-
-After entering the lab environment you will need to run the `setup.sh` script in the `./bin` folder to install the prerequisite software.
+The workflow checks out the repository, installs the Python dependencies,
+runs flake8, and runs nose with coverage. Python 3.9 preserves compatibility
+with the course's pinned nose dependencies. The workflow uses read-only
+repository permissions.
 
 ```bash
-bash bin/setup.sh
+python -m pip install -r requirements.txt
+flake8 service tests --count --select=E9,F63,F7,F82 --show-source --statistics
+flake8 service tests --count --max-complexity=10 --max-line-length=127 --statistics
+nosetests -v --with-spec --spec-color --with-coverage --cover-package=service
 ```
 
-Then you must exit the shell and start a new one for the Python virtual environment to be activated.
+## OpenShift continuous delivery
 
-```bash
-exit
-```
+The pipeline runs these tasks in order:
 
-## Tasks
+`cleanup → git-clone → flake8 → nose → buildah → deploy`
 
+The shared PersistentVolumeClaim requests **1Gi** of storage using the lab's
+`skills-network-learner` storage class. The final deployment runs the service
+on port **8000**. Deployment evidence is collected from an actual pipeline
+run and its application logs.
 
-## License
+## API
 
-Licensed under the Apache License. See [LICENSE](/LICENSE)
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/health` | Service health |
+| GET | `/counters` | List counters |
+| POST | `/counters/<name>` | Create a counter starting at zero |
+| GET | `/counters/<name>` | Read a counter |
+| PUT | `/counters/<name>` | Increment a counter |
+| DELETE | `/counters/<name>` | Delete a counter |
 
-## Author
+## Attribution and license
 
-Skills Network
-
-## <h3 align="center"> © IBM Corporation 2023. All rights reserved. <h3/>
+Based on the [IBM Skills Network CI/CD final project template](https://github.com/ibm-developer-skills-network/vselh-ci-cd-final-project-template).
+Licensed under the Apache License 2.0; see [LICENSE](LICENSE).

@@ -1,0 +1,44 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: cleanup
+spec:
+  description: Remove files from the shared source workspace before cloning.
+  workspaces:
+    - name: source
+  steps:
+    - name: remove
+      image: alpine:3.20
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        echo "Cleaning the source workspace"
+        find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+        echo "Source workspace is clean"
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: nose
+spec:
+  description: Install project dependencies and run nose unit tests with coverage.
+  workspaces:
+    - name: source
+  params:
+    - name: args
+      type: string
+      default: "-v --with-spec --spec-color --with-coverage --cover-package=service --cover-erase"
+  steps:
+    - name: nosetests
+      image: python:3.9-slim
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: HOME
+          value: /tmp
+      script: |
+        #!/bin/sh
+        set -eu
+        export PATH="/tmp/.local/bin:$PATH"
+        python -m pip install --user --no-cache-dir -r requirements.txt
+        nosetests $(params.args)
